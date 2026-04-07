@@ -1,0 +1,11 @@
+ollama
+rich
+prompt_toolkit
+playwright
+requests
+pathspec
+python-dotenv
+fastapi
+uvicorn
+apscheduler
+watchdog
