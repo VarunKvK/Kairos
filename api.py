@@ -22,13 +22,14 @@ from agent import run_agent
 from config import config
 
 
-
-################################# DELETE ##########################################
 from scheduler import add_job, remove_job, list_jobs, run_job_now, start_scheduler, stop_scheduler
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
-################################# DELETE ##########################################
 
+from friday import (
+    add_watch, remove_watch, list_watches,
+    start_friday, stop_friday, LOG_FILE as FRIDAY_LOG
+)
 
 
 # ── App Setup ────────────────────────────────────────────────────────────────
@@ -41,13 +42,16 @@ from contextlib import asynccontextmanager
 #     version="1.0.0",
 # )
 
-################################# DELETE ##########################################
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Runs on startup and shutdown."""
     start_scheduler()   # ← start scheduler when API starts
+    start_friday()
     yield
     stop_scheduler()    # ← stop scheduler when API shuts down
+    stop_friday()
+
 
 app = FastAPI(
     title="Kairos API",
@@ -55,7 +59,7 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
-################################# DELETE ##########################################
+
 
 
 
@@ -104,7 +108,6 @@ class HistoryResponse(BaseModel):
     history: list[dict]        # Full conversation history
     length: int                # Number of messages
 
-################################# DELETE ##########################################
 class AddJobRequest(BaseModel):
     task:     str            # What Kairos should do
     schedule: str            # "every day at 08:00"
@@ -117,7 +120,29 @@ class JobResponse(BaseModel):
     schedule:   str
     enabled:    bool
     created_at: str
-################################# DELETE ##########################################
+
+class AddWatchRequest(BaseModel):
+    folder:               str
+    task:                 str
+    event:                str  = "created"
+    pattern:              str  = "*"
+    watch_id:             str  = None
+    cooldown_seconds:     int  = 30
+    max_triggers_per_day: int  = 20
+    local_only:           bool = True
+
+
+class WatchResponse(BaseModel):
+    id:                   str
+    folder:               str
+    pattern:              str
+    event:                str
+    task:                 str
+    cooldown_seconds:     int
+    max_triggers_per_day: int
+    local_only:           bool
+    enabled:              bool
+    created_at:           str
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
@@ -252,7 +277,6 @@ def delete_history():
     return JSONResponse(content={"message": "History cleared.", "length": 0})
 
 
-################################# DELETE ##########################################
 # ── Scheduler Endpoints ───────────────────────────────────────────────────────
 
 @app.post("/jobs", response_model=JobResponse)
@@ -329,7 +353,77 @@ def get_logs(lines: int = 50):
         "lines":    len(last_lines),
         "logs":     last_lines,
     })
-################################# DELETE ##########################################
+
+# ── FRIDAY Endpoints ──────────────────────────────────────────────────────────
+
+@app.post("/watches", response_model=WatchResponse)
+def post_add_watch(request: AddWatchRequest):
+    """
+    POST /watches
+    Add a new filesystem watch.
+
+    Body:
+        {
+            "folder": "~/Dev/Kairos",
+            "pattern": "*.py",
+            "event": "created",
+            "task": "review the new python file at {filepath}",
+            "cooldown_seconds": 30,
+            "max_triggers_per_day": 20,
+            "local_only": true
+        }
+    """
+    try:
+        watch = add_watch(
+            folder=request.folder,
+            task=request.task,
+            event=request.event,
+            pattern=request.pattern,
+            watch_id=request.watch_id,
+            cooldown_seconds=request.cooldown_seconds,
+            max_triggers_per_day=request.max_triggers_per_day,
+            local_only=request.local_only,
+        )
+        return WatchResponse(**watch)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/watches")
+def get_watches():
+    """
+    GET /watches
+    List all active filesystem watches.
+    """
+    watches = list_watches()
+    return {"watches": watches, "count": len(watches)}
+
+
+@app.delete("/watches/{watch_id}")
+def delete_watch(watch_id: str):
+    """
+    DELETE /watches/{watch_id}
+    Remove a filesystem watch by ID.
+    """
+    removed = remove_watch(watch_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Watch '{watch_id}' not found.")
+    return JSONResponse(content={"message": f"Watch '{watch_id}' removed."})
+
+
+@app.get("/watches/logs")
+def get_friday_logs(lines: int = 50):
+    """
+    GET /watches/logs?lines=50
+    Returns the last N lines from the FRIDAY log file.
+    """
+    if not FRIDAY_LOG.exists():
+        return JSONResponse(content={"logs": [], "message": "No logs yet."})
+
+    all_lines  = FRIDAY_LOG.read_text().splitlines()
+    last_lines = all_lines[-lines:]
+
+    return JSONResponse(content={"lines": len(last_lines), "logs": last_lines})
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────

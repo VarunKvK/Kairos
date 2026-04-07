@@ -55,6 +55,9 @@ RULES:
   Or run it from inside the project folder like this:
   cd fastapi_hello && uvicorn main:app --host 0.0.0.0 --port 8000 &
 - Always use quoted strings in JSON. Never write: "tool": none — always write: "tool": "none"
+- Never use inotifywait, watchdog, or any filesystem monitoring commands directly.
+  If the user wants to watch files or monitor folders, tell them to use /watch commands instead.
+  Example: "Use /watch add ~/Dev *.py created "review {filepath}" to set up file monitoring."
 
 RESPONSE FORMAT:
 {

@@ -14,6 +14,9 @@ from agent import run_agent
 from planner import run_planner
 from config import config
 
+from scheduler import add_job, remove_job, list_jobs, run_job_now
+from friday import add_watch, remove_watch, list_watches
+
 console = Console()
 
 # ─── PROMPT STYLE ──────────────────────────────────────────────────────────
@@ -148,22 +151,329 @@ def run_agent_visible(user_input: str, history: list) -> tuple[str, list]:
     console.print = clean_print
 
     try:
-        answer, history = run_planner(user_input)
+        answer, history = run_planner(user_input, history)
     finally:
         # Always restore original print even if something fails
         console.print = original_print
 
     return answer, history
 
+# ─── SLASH COMMAND HANDLER ─────────────────────────────────────────────────
+def _handle_watch_natural_language(user_input: str) -> None:
+    """
+    Parse a natural language /watch request using the LLM.
+    """
+    from llm import chat
+    import json
+    import re
+
+    # Strip the /watch prefix — only send the actual intent to LLM
+    # "/watch monitor my Downloads folder" → "monitor my Downloads folder"
+    intent = user_input.strip()
+    if intent.lower().startswith("/watch"):
+        intent = intent[len("/watch"):].strip()
+
+    console.print()
+    console.print(Text("  ⌛ Interpreting your watch request...", style="dim gold1"))
+
+    extraction_prompt = [
+        {
+            "role": "system",
+            "content": """You extract filesystem watch parameters from natural language.
+                Always respond with a single JSON object — nothing else.
+
+                Valid events: created, modified, deleted, any
+                Pattern examples: *.py, *.log, *.txt, * (for all files)
+                Task should include {filepath} as placeholder for the actual file path.
+
+                Default values if not mentioned:
+                - folder: ~/Dev
+                - pattern: * (all files)
+                - event: created
+                - task: "A file event occurred at {filepath}. Briefly describe what happened."
+
+                JSON format:
+                {
+                "folder": "absolute or ~ path to watch",
+                "pattern": "*.py",
+                "event": "created",
+                "task": "what kairos should do when the event fires, use {filepath} as placeholder"
+                }"""
+        },
+        {
+            "role": "user",
+            "content": f"Extract watch parameters from this request: {intent}"
+        }
+    ]
+
+    try:
+        raw     = chat(extraction_prompt)
+        cleaned = raw.strip()
+
+        # Strip markdown code blocks if present
+        if cleaned.startswith("```"):
+            parts   = cleaned.split("```")
+            cleaned = parts[1]
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:]
+            cleaned = cleaned.strip()
+
+        # Fix unquoted none values
+        cleaned = re.sub(r':\s*none\b', ': "none"', cleaned)
+
+        params  = json.loads(cleaned)
+
+        folder  = params.get("folder",  "~/Dev")
+        pattern = params.get("pattern", "*")
+        event   = params.get("event",   "created")
+        task    = params.get("task",    "A file event occurred at {filepath}. Briefly describe what happened.")
+
+        # Show what was understood — let user confirm before creating
+        console.print(Text("  Understood:", style="dim gold1"))
+        console.print(Text(f"    Folder:  {folder}", style="dim white"))
+        console.print(Text(f"    Pattern: {pattern}", style="dim white"))
+        console.print(Text(f"    Event:   {event}", style="dim white"))
+        console.print(Text(f"    Task:    {task[:80]}", style="dim white"))
+        console.print()
+
+        # Ask user to confirm before creating
+        console.print(Text("  Confirm? (yes/no)", style="dim gold1"))
+        confirm = input("  → ").strip().lower()
+
+        if confirm not in ["yes", "y"]:
+            console.print(Text("  Watch cancelled.", style="dim white"))
+            console.print()
+            return
+
+        watch = add_watch(
+            folder=folder,
+            task=task,
+            event=event,
+            pattern=pattern,
+        )
+
+        console.print()
+        console.print(Text(f"  ✓ Watch active [{watch['id']}]", style="green"))
+        console.print()
+
+    except json.JSONDecodeError:
+        show_error("Could not parse watch request. Try: /watch add <folder> <pattern> <event> \"<task>\"")
+    except ValueError as e:
+        show_error(str(e))
+    except Exception as e:
+        show_error(f"Watch setup failed: {str(e)}")
+
+def handle_slash_command(user_input: str) -> bool:
+    """
+    Handle /commands before they reach the LLM.
+    Returns True if a command was handled, False if not a command.
+
+    Commands:
+        /watch add <folder> <pattern> <event> <task>
+        /watch list
+        /watch remove <id>
+
+        /job add <task> | <schedule>
+        /job list
+        /job remove <id>
+        /job run <id>
+
+        /help
+    """
+    inp = user_input.strip()
+
+    if not inp.startswith("/"):
+        return False
+
+    parts = inp.split(None, 3)   # split on whitespace, max 4 parts
+    cmd   = parts[0].lower()     # /watch or /job or /help
+
+    # ── /help ─────────────────────────────────────────────
+    if cmd == "/help":
+        console.print()
+        console.print(Text("  ── Slash Commands ──", style="bold gold1"))
+        console.print()
+        console.print(Text("  FRIDAY — Filesystem Watcher:", style="gold1"))
+        console.print(Text('  /watch add <folder> <pattern> <event> "<task>"', style="dim white"))
+        console.print(Text("  /watch list", style="dim white"))
+        console.print(Text("  /watch remove <id>", style="dim white"))
+        console.print()
+        console.print(Text("  Scheduler — Timed Tasks:", style="gold1"))
+        console.print(Text('  /job add "<task>" | "<schedule>"', style="dim white"))
+        console.print(Text("  /job list", style="dim white"))
+        console.print(Text("  /job remove <id>", style="dim white"))
+        console.print(Text("  /job run <id>", style="dim white"))
+        console.print()
+        console.print(Text("  Examples:", style="gold1"))
+        console.print(Text('  /watch add ~/Dev/Kairos *.py created "review {filepath}"', style="dim white"))
+        console.print(Text('  /job add "summarize Dev folder" | "every day at 08:00"', style="dim white"))
+        console.print()
+        return True
+
+    # ── /watch ────────────────────────────────────────────
+    if cmd == "/watch":
+        if len(parts) < 2:
+            show_error("Usage: /watch add|list|remove or natural language")
+            return True
+
+        sub = parts[1].lower()
+
+        # ── /watch list ───────────────────────────────
+        if sub == "list":
+            watches = list_watches()
+            console.print()
+            if not watches:
+                console.print(Text("  No active watches.", style="dim white"))
+            else:
+                console.print(Text(f"  {len(watches)} active watch(es):", style="gold1"))
+                for w in watches:
+                    console.print(Text(f"  [{w['id']}] {w['folder']} — {w['event']} {w['pattern']}", style="dim white"))
+                    console.print(Text(f"    Task: {w['task'][:80]}", style="dim white"))
+            console.print()
+            return True
+
+        # ── /watch remove <id> ────────────────────────
+        if sub == "remove":
+            if len(parts) < 3:
+                show_error("Usage: /watch remove <id>")
+                return True
+            watch_id = parts[2]
+            removed  = remove_watch(watch_id)
+            if removed:
+                console.print()
+                console.print(Text(f"  ✓ Watch '{watch_id}' removed.", style="green"))
+                console.print()
+            else:
+                show_error(f"Watch '{watch_id}' not found.")
+            return True
+
+        # ── /watch add <folder> <pattern> <event> "<task>" ──
+        if sub == "add":
+            rest   = inp[len("/watch add"):].strip()
+            tokens = rest.split(None, 3)
+
+            if len(tokens) < 4:
+                show_error('Usage: /watch add <folder> <pattern> <event> "<task>"')
+                show_error('Example: /watch add ~/Dev/Kairos *.py created "review {filepath}"')
+                return True
+
+            folder  = tokens[0]
+            pattern = tokens[1]
+            event   = tokens[2]
+            task    = tokens[3].strip('"')
+
+            try:
+                watch = add_watch(
+                    folder=folder,
+                    task=task,
+                    event=event,
+                    pattern=pattern,
+                )
+                console.print()
+                console.print(Text(f"  ✓ Watch added [{watch['id']}]", style="green"))
+                console.print(Text(f"    Folder:  {watch['folder']}", style="dim white"))
+                console.print(Text(f"    Pattern: {watch['pattern']}", style="dim white"))
+                console.print(Text(f"    Event:   {watch['event']}", style="dim white"))
+                console.print(Text(f"    Task:    {watch['task'][:80]}", style="dim white"))
+                console.print()
+            except ValueError as e:
+                show_error(str(e))
+            return True
+
+        # ── Natural language fallback ─────────────────
+        # If subcommand isn't list/remove/add — treat the
+        # entire /watch input as a natural language request
+        # and let the LLM extract folder, pattern, event, task
+        _handle_watch_natural_language(inp)
+        return True
+
+    # ── /job ──────────────────────────────────────────────
+    if cmd == "/job":
+        if len(parts) < 2:
+            show_error("Usage: /job add|list|remove|run ...")
+            return True
+
+        sub = parts[1].lower()
+
+        if sub == "list":
+            jobs = list_jobs()
+            console.print()
+            if not jobs:
+                console.print(Text("  No scheduled jobs.", style="dim white"))
+            else:
+                console.print(Text(f"  {len(jobs)} scheduled job(s):", style="gold1"))
+                for j in jobs:
+                    console.print(Text(f"  [{j['id']}] {j['schedule']}", style="dim white"))
+                    console.print(Text(f"    Task: {j['task'][:80]}", style="dim white"))
+            console.print()
+            return True
+
+        if sub == "remove":
+            if len(parts) < 3:
+                show_error("Usage: /job remove <id>")
+                return True
+            job_id  = parts[2]
+            removed = remove_job(job_id)
+            if removed:
+                console.print()
+                console.print(Text(f"  ✓ Job '{job_id}' removed.", style="green"))
+                console.print()
+            else:
+                show_error(f"Job '{job_id}' not found.")
+            return True
+
+        if sub == "run":
+            if len(parts) < 3:
+                show_error("Usage: /job run <id>")
+                return True
+            job_id = parts[2]
+            try:
+                console.print()
+                console.print(Text(f"  ⌛ Running job '{job_id}'...", style="dim gold1"))
+                result = run_job_now(job_id)
+                show_response(result)
+            except ValueError as e:
+                show_error(str(e))
+            return True
+
+        if sub == "add":
+            # Format: /job add "task description" | "every day at 08:00"
+            if len(parts) < 3:
+                show_error('Usage: /job add "<task>" | "<schedule>"')
+                return True
+
+            # Everything after "/job add" — split on " | "
+            rest = inp[len("/job add"):].strip()
+
+            if " | " not in rest:
+                show_error('Usage: /job add "<task>" | "<schedule>"')
+                return True
+
+            task_part, schedule_part = rest.split(" | ", 1)
+            task     = task_part.strip().strip('"')
+            schedule = schedule_part.strip().strip('"')
+
+            try:
+                job = add_job(task=task, schedule=schedule)
+                console.print()
+                console.print(Text(f"  ✓ Job added [{job['id']}]", style="green"))
+                console.print(Text(f"    Task:     {job['task'][:80]}", style="dim white"))
+                console.print(Text(f"    Schedule: {job['schedule']}", style="dim white"))
+                console.print()
+            except ValueError as e:
+                show_error(str(e))
+            return True
+
+        show_error(f"Unknown /job subcommand: {sub}. Use add|list|remove|run.")
+        return True
+
+    # Unknown slash command
+    show_error(f"Unknown command: {cmd}. Type /help for available commands.")
+    return True
 
 # ─── MAIN LOOP ─────────────────────────────────────────────────────────────
 
 def run():
-    """
-    The main loop of Kairos.
-    Keeps asking for input and running the agent until the user types 'exit'.
-    """
-
     show_welcome()
 
     history = []
@@ -185,8 +495,14 @@ def run():
                 show_farewell()
                 break
 
+            # ── Handle slash commands before LLM ──────────
+            if user_input.startswith("/"):
+                handle_slash_command(user_input)
+                continue
+
+            # ── Normal message → agent ────────────────────
             console.print()
-            answer, history = run_planner(user_input)
+            answer, history = run_planner(user_input, history)  # ← history passed
             show_response(answer)
 
         except KeyboardInterrupt:

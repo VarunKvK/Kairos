@@ -42,15 +42,17 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
-# We use Python's built-in logging — separate from Rich console
-# so scheduled task results go to a file, not the terminal
-logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 log = logging.getLogger("kairos.scheduler")
+log.setLevel(logging.INFO)
+
+if not log.handlers:
+    _file_handler = logging.FileHandler(LOG_FILE)
+    _file_handler.setLevel(logging.INFO)
+    _file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    log.addHandler(_file_handler)
 
 
 # ── Scheduler Instance ────────────────────────────────────────────────────────
