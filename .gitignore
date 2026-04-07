@@ -45,3 +45,9 @@ htmlcov/
 dist/
 build/
 *.egg-info/python_files.txt
+
+# Generated files — created by agent during tasks
+python_files.txt
+*.tmp
+monitor_py.sh
+python_files.txt
