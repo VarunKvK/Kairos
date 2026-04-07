@@ -44,4 +44,4 @@ htmlcov/
 # ── Build ─────────────────────────────────────────────────
 dist/
 build/
-*.egg-info/
+*.egg-info/python_files.txt
