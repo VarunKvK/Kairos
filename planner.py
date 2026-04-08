@@ -30,8 +30,9 @@ IMPORTANT RULES FOR SUBTASKS:
   Instead use the full path to pip e.g. "pip install fastapi uvicorn"
 - For writing files: always specify the exact file path and full content inline.
 - Never include steps to open a browser or verify via browser — use shell commands instead.
-- Maximum 6 subtasks. Keep it focused and lean.
 - Each subtask description must be detailed enough to execute without any prior context.
+- Break the task into a maximum of 4 subtasks
+- Combine steps wherever possible — fewer steps is always better
 
 RULES:
 - Always respond with a single JSON object — nothing else.
@@ -87,6 +88,27 @@ Task: "Search the web for FastAPI and create a hello world project"
     }
   ]
 }
+
+CRITICAL RULES FOR SUBTASKS:
+- For web searches: use the browser tool with action "search", NEVER use curl for searching
+- For visiting URLs: use the browser tool with action "visit", NEVER use curl
+- For editing crontab: use shell command: (crontab -l 2>/dev/null; echo "0 0 * * * command") | crontab -
+  NEVER use crontab -e (it opens an interactive editor)
+- Never create temporary HTML files — use browser tool directly
+- All file paths must be absolute — use /home/varunkrishnan/ not ~/
+- If a subtask fails, the next subtask must not depend on its output
+
+
+AVAILABLE TOOLS:
+- shell: run any bash command
+- file: read, write, delete, list files
+- browser: search the web or visit a URL directly
+  Use this for ALL web searches and URL visits
+  action "search": searches Google for a query
+  action "visit": visits a specific URL
+
+NEVER plan curl commands for web research.
+ALWAYS plan browser tool usage for web research.
 """
 
 # ─── RESPONSE PARSER ───────────────────────────────────────────────────────

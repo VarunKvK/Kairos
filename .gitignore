@@ -51,3 +51,4 @@ python_files.txt
 *.tmp
 monitor_py.sh
 python_files.txt
+memory.json

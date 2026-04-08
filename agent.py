@@ -10,6 +10,7 @@ from llm import chat
 from tools.shell import run_command
 from tools.file import read_file, write_file, delete_file, list_folder
 from tools.browser import visit_page, search_web
+from memory import get_memory_context, remember
 
 console = Console()
 
@@ -25,10 +26,17 @@ You speak with quiet confidence — never verbose, never uncertain.
 You are running on a Linux system and help the user complete tasks autonomously.
 
 Your character:
-- Speak in short, decisive sentences. No filler words.
-- When you complete a task, reflect briefly on what was done — like a philosopher observing the result.
-- When something fails, acknowledge it stoically. No panic, no apology.
-- Occasionally use a short Greek philosophical insight relevant to the task. Keep it subtle.
+- Speak as ancient Greek inscriptions — sparse, symbolic, final.
+- Maximum 1 sentence in your answer. No filler. No elaboration.
+- Success: state what was done. Nothing more.
+- Failure: state what failed. One word if possible.
+- Greek word or symbol allowed. Never a paragraph.
+
+Examples:
+  Good: "Done. 14 files found."
+  Good: "Failed. No permission."
+  Good: "Ἐγένετο. — 3 packages installed."
+  Bad:  "I have successfully completed the installation of the requested packages..."
 
 You have access to the following tools:
 
@@ -58,6 +66,15 @@ RULES:
 - Never use inotifywait, watchdog, or any filesystem monitoring commands directly.
   If the user wants to watch files or monitor folders, tell them to use /watch commands instead.
   Example: "Use /watch add ~/Dev *.py created "review {filepath}" to set up file monitoring."
+- Always save files to /home/varunkrishnan/Dev/Kairos/ unless user specifies otherwise
+- Never use ~/ in file paths — always use the full absolute path
+- For crontab editing never use crontab -e, instead use:
+  (crontab -l 2>/dev/null; echo "your_cron_line") | crontab -
+- For web searches always use the browser tool with action "search"
+  Never use curl to search Google or any search engine
+- For any web search query, ALWAYS use: tool "browser", action "search", input "your query"
+  NEVER use browser visit for searches — only use visit for direct URLs you already know
+- The browser search tool handles Google automatically — just pass the search query as input
 
 RESPONSE FORMAT:
 {
@@ -170,111 +187,100 @@ def run_tool(tool: str, action: str, input: str)-> str:
     return f"Unknown tool: {tool}"
 
 # ─── RESPONSE PARSER ───────────────────────────────────────────────────────
-def parse_response(response: str)-> dict:
-    """
-    Parse Kairos's JSON response into a Python dictionary.
-    If the response is not valid JSON, return an error dict.
-    """
+def parse_response(response: str) -> dict:
     try:
-        # Sometimes the LLM wraps JSON in markdown code blocks
-        # e.g. ```json { ... } ``` — we strip those out
         cleaned = response.strip()
+
+        # Strip markdown code blocks
         if cleaned.startswith("```"):
-            # Split on ``` and take the middle part
             parts = cleaned.split("```")
             cleaned = parts[1]
             if cleaned.startswith("json"):
                 cleaned = cleaned[4:]
-        
-        # Fix unquoted none values — common LLM mistake
-        # Replaces:  "tool": none  →  "tool": "none"
-        # But not:   "something": "none"  (already quoted, leave alone)
+            cleaned = cleaned.strip()
+
+        # Fix unquoted none values
         import re
         cleaned = re.sub(r':\s*none\b', ': "none"', cleaned)
 
         return json.loads(cleaned.strip())
 
     except json.JSONDecodeError:
+        # Try extracting JSON with regex — handles dirty responses
+        import re
+        match = re.search(r'\{.*\}', response, re.DOTALL)
+        if match:
+            try:
+                # Clean the extracted JSON
+                extracted = match.group(0)
+                extracted = re.sub(r':\s*none\b', ': "none"', extracted)
+                return json.loads(extracted)
+            except json.JSONDecodeError:
+                pass
+
+        console.print(f"[red]  ✗ JSON parse failed[/red]")
         return {
             "thought": "Failed to parse response",
             "tool":    "none",
             "action":  "none",
             "input":   "",
-            "answer":  response,  # Return raw response as answer
+            "answer":  response,
         }
 
 # ─── AGENT LOOP ────────────────────────────────────────────────────────────
 def run_agent(user_message: str, history: list) -> tuple[str, list]:
-    """
-    The core agent loop.
-    Takes the user's message and conversation history.
-    Returns Kairos's final answer and the updated history.
+    """Main agent loop with memory injection."""
 
-    Steps:
-    1. Add user message to history
-    2. Send history to LLM
-    3. Parse the JSON response
-    4. If tool needed → run it → feed result back → repeat
-    5. If no tool needed → return the final answer
-    """
+    history.append({"role": "user", "content": user_message})
 
-    # Add the user message to conversation history
-    history.append({ "role": "user", "content": user_message })
+    # ── Inject memory into system prompt ──────────────────
+    memory_context = get_memory_context()
 
-    # Build the full message list with system prompt at the top
-    messages = [{"role":"system", "content": SYSTEM_PROMPT}] + history
+    if memory_context:
+        # Append memory to system prompt so Kairos always knows user context
+        system_with_memory = SYSTEM_PROMPT + f"\n\n{memory_context}"
+    else:
+        system_with_memory = SYSTEM_PROMPT
 
-    iterations = 0
+    messages = [{"role": "system", "content": system_with_memory}] + history
+
+    iterations    = 0
     max_iterations = config["max_iterations"]
 
     while iterations < max_iterations:
         iterations += 1
-
-        # ── Ask the LLM what to do ─────────────────────────
         console.print(f"[dim gold1]  ⌛ Step {iterations} — seeking the answer...[/dim gold1]")
 
         raw_response = chat(messages)
-
-        # ── Parse the JSON response ────────────────────────
-        parsed = parse_response(raw_response)
+        parsed       = parse_response(raw_response)
 
         thought = parsed.get("thought", "")
         tool    = parsed.get("tool",    "none")
         action  = parsed.get("action",  "none")
         inp     = parsed.get("input",   "")
         answer  = parsed.get("answer",  "")
-        
-        # Show Kairos's reasoning in dim text
+
         if thought:
             console.print(f"[dim]💭 {thought}[/dim]")
-        
-        # ── No tool needed → return final answer ──────────
+
         if tool == "none":
-            history.append({"role":"assistant", "content": answer})
+            history.append({"role": "assistant", "content": answer})
             return answer, history
-        
-        # ── Tool needed → run it ───────────────────────────
+
         tool_result = run_tool(tool, action, inp)
-        # Truncate large tool results to avoid overflowing the LLM's token limit.
-        # 1500 characters is enough for the LLM to understand the result.
+
         MAX_RESULT_LENGTH = 1500
         if len(tool_result) > MAX_RESULT_LENGTH:
-            tool_result = tool_result[:MAX_RESULT_LENGTH] + "\n... [truncated for length]"
+            tool_result = tool_result[:MAX_RESULT_LENGTH] + "\n... [truncated]"
 
         console.print(f"[dim gold1]  ⚙ Invoking {tool} → {action}[/dim gold1]")
 
-        # Feed the tool result back to the LLM as an assistant + user message
-        # This continues the conversation with the new information
-        messages.append({
-            "role":    "assistant",
-            "content": raw_response
-        })
+        messages.append({"role": "assistant", "content": raw_response})
         messages.append({
             "role":    "user",
-            "content": f"The tool returned this result:\n{tool_result}\n\nNow give your final answer to the user."
+            "content": f"Tool result:\n{tool_result}\n\nNow give your final answer.",
         })
 
-    return "I reached the maximum number of steps without completing the task.", history
-
+    return "Maximum steps reached.", history
 
         

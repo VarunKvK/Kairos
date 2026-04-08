@@ -1,21 +1,27 @@
 # main.py
-# Entry point for Kairos.
-# Starts the REST API in a background thread, then launches the terminal UI.
-# Exiting the terminal UI stops everything cleanly.
-
 import time
 import threading
+import requests
 import uvicorn
 from ui.terminal import run
 
+
+def is_api_running() -> bool:
+    """
+    Check if the Kairos API is already running on port 8000.
+    Returns True if it's up, False if not.
+    """
+    try:
+        response = requests.get("http://127.0.0.1:8000/status", timeout=2)
+        return response.status_code == 200
+    except requests.exceptions.ConnectionError:
+        return False
+
+
 def start_api():
-    """
-    Start the FastAPI server in a background thread.
-    log_level="warning" silences per-request logs so they
-    don't clutter the terminal UI output.
-    """
+    """Start the FastAPI server in a background thread."""
     uvicorn.run(
-        'api:app',
+        "api:app",
         host="127.0.0.1",
         port=8000,
         log_level="warning",
@@ -24,15 +30,14 @@ def start_api():
 
 
 if __name__ == "__main__":
-    # Start API as a daemon thread
-    # daemon=True means it dies automatically when main.py exits
-    # so you never have orphan processes left behind
-    api_thread = threading.Thread(target=start_api, daemon=True)
-    api_thread.start()
+    if is_api_running():
+        # systemd already started the API — don't start another one
+        print("  ⚡ Kairos API already running — connecting...")
+    else:
+        # No API running — start one in background thread
+        api_thread = threading.Thread(target=start_api, daemon=True)
+        api_thread.start()
+        time.sleep(1)
 
-    # Give uvicorn 1 second to bind to the port
-    # before the terminal UI loads
-    time.sleep(1)
-
-    # Launch the terminal UI — this blocks until the user exits
+    # Always start the terminal UI
     run()

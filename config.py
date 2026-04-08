@@ -29,5 +29,5 @@ config = {
 
     # ─── AGENT SETTINGS ───────────────────────────────────────
     "agent_name": "Kairos",
-    "max_iterations": 10,  # Max steps Kairos takes before stopping
+    "max_iterations": 6,  # Max steps Kairos takes before stopping
 }

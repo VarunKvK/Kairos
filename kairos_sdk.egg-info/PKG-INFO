@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: kairos-sdk
+Version: 1.0.0
+Summary: Python SDK for the Kairos AI Agent
+Author: Varun Krishnan
+Requires-Python: >=3.12
+Requires-Dist: requests
+Dynamic: author
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

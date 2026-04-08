@@ -1,0 +1,15 @@
+README.md
+setup.py
+kairos_sdk.egg-info/PKG-INFO
+kairos_sdk.egg-info/SOURCES.txt
+kairos_sdk.egg-info/dependency_links.txt
+kairos_sdk.egg-info/requires.txt
+kairos_sdk.egg-info/top_level.txt
+sdk/__init__.py
+sdk/client.py
+tools/__init__.py
+tools/browser.py
+tools/file.py
+tools/shell.py
+ui/__init__.py
+ui/terminal.py
