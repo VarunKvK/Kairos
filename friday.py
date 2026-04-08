@@ -29,6 +29,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from planner import run_planner
+from notifications import notify_friday
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -155,9 +156,7 @@ def record_trigger(watch_id: str) -> None:
 def run_task_silently(task: str, local_only: bool) -> str:
     """
     Run a task through Kairos silently.
-    If local_only=True, temporarily forces the fallback chain
-    to skip Groq and Gemini — uses only phi4-mini and Mistral.
-    All Rich console output is suppressed.
+    Returns answer string — never raises.
     """
     import io
     import llm as llm_module
@@ -165,31 +164,37 @@ def run_task_silently(task: str, local_only: bool) -> str:
     import planner as planner_module
     from rich.console import Console as RichConsole
 
-    # Silence all Rich output — jobs run in background
     silent = RichConsole(file=io.StringIO(), highlight=False)
 
     original_agent_console   = agent.console
     original_planner_console = planner_module.console
 
-    agent.console            = silent
-    planner_module.console   = silent
+    agent.console          = silent
+    planner_module.console = silent
 
-    # If local_only, override the fallback order to skip cloud providers
     original_fallback = llm_module.FALLBACK_ORDER
     if local_only:
-        # Only use local models — zero API cost
         llm_module.FALLBACK_ORDER = ["gemma", "mistral"]
 
     try:
-        answer, _ = run_planner(task, [])
+        result = run_planner(task, [])
+
+        # run_planner returns (answer, history) tuple
+        # but guard against unexpected return types
+        if isinstance(result, tuple):
+            answer = result[0]
+        elif isinstance(result, str):
+            answer = result
+        else:
+            answer = str(result)
+
+        return answer
+
     finally:
-        # Always restore originals — even if task crashes
-        agent.console            = original_agent_console
-        planner_module.console   = original_planner_console
+        agent.console          = original_agent_console
+        planner_module.console = original_planner_console
         llm_module.FALLBACK_ORDER = original_fallback
-
-    return answer
-
+    
 # ── Event Handler ─────────────────────────────────────────────────────────────
 
 class KairosEventHandler(FileSystemEventHandler):
@@ -251,8 +256,12 @@ class KairosEventHandler(FileSystemEventHandler):
         try:
             result = run_task_silently(task, self.local_only)
             log.info(f"[{self.watch_id}] Result: {result[:500]}")
+
+            notify_friday(event_type, filepath, result)
         except Exception as e:
             log.error(f"[{self.watch_id}] Task failed: {e}")
+            from notifications import notify_error
+            notify_error("FRIDAY", str(e))
 
     # ── watchdog callbacks ─────────────────────────────────
 

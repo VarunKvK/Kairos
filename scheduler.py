@@ -26,6 +26,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from planner import run_planner
+from notifications import notify_scheduler, notify_error
 
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -201,6 +202,9 @@ def execute_job(job_id: str, task: str) -> None:
 
         try:
             answer, _ = run_planner(task, [])
+            log.info(f"[{job_id}] Completed. Result: {answer[:500]}")
+            
+            notify_scheduler(job_id, task, answer)
         finally:
             # Always restore — even if run_planner crashes
             agent.console   = original_agent_console
@@ -210,6 +214,7 @@ def execute_job(job_id: str, task: str) -> None:
 
     except Exception as e:
         log.error(f"[{job_id}] Failed: {e}")
+        notify_error("Scheduler", f"Job [{job_id}] failed: {e}")
 
 # ── Public API ────────────────────────────────────────────────────────────────
 

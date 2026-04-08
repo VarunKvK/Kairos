@@ -16,9 +16,44 @@ from config import config
 
 from scheduler import add_job, remove_job, list_jobs, run_job_now
 from friday import add_watch, remove_watch, list_watches
-from memory import remember, forget, forget_all, list_memory
+
+import requests as _requests
+
 
 console = Console()
+
+def _api(method: str, endpoint: str, body: dict = None) -> dict | None:
+    """
+    Make a request to the Kairos API.
+    Ensures changes go to the correct process (systemd)
+    instead of the local terminal process.
+    """
+    url = f"http://127.0.0.1:8000{endpoint}"
+    try:
+        if method == "GET":
+            r = _requests.get(url, timeout=10)
+        elif method == "POST":
+            r = _requests.post(url, json=body, timeout=10)
+        elif method == "DELETE":
+            r = _requests.delete(url, timeout=10)
+        else:
+            return None
+
+        if r.ok:
+            # Some endpoints return empty body (204)
+            if r.content:
+                return r.json()
+            return {"ok": True}
+        else:
+            try:
+                return {"error": r.json().get("detail", r.text)}
+            except Exception:
+                return {"error": r.text}
+
+    except _requests.exceptions.ConnectionError:
+        return {"error": "Cannot reach Kairos API. Is it running?"}
+    except Exception as e:
+        return {"error": str(e)}
 
 # ─── PROMPT STYLE ──────────────────────────────────────────────────────────
 PROMPT_STYLE = Style.from_dict({
@@ -227,7 +262,7 @@ def _handle_watch_natural_language(user_input: str) -> None:
         folder  = params.get("folder",  "~/Dev")
         pattern = params.get("pattern", "*")
         event   = params.get("event",   "created")
-        task    = params.get("task",    "A file event occurred at {filepath}. Briefly describe what happened.")
+        task = params.get("task", "A file was created at {filepath}. State the filename only.")
 
         # Show what was understood — let user confirm before creating
         console.print(Text("  Understood:", style="dim gold1"))
@@ -246,15 +281,17 @@ def _handle_watch_natural_language(user_input: str) -> None:
             console.print()
             return
 
-        watch = add_watch(
-            folder=folder,
-            task=task,
-            event=event,
-            pattern=pattern,
-        )
+        data = _api("POST", "/watches", {
+            "folder":  folder,
+            "task":    task,
+            "event":   event,
+            "pattern": pattern,
+        })
+        if data and "error" not in data:
+            console.print(Text(f"  ✓ Watch active [{data['id']}]", style="green"))
+        else:
+            show_error(data.get("error", "Failed to add watch."))
 
-        console.print()
-        console.print(Text(f"  ✓ Watch active [{watch['id']}]", style="green"))
         console.print()
 
     except json.JSONDecodeError:
@@ -313,6 +350,8 @@ def handle_slash_command(user_input: str) -> bool:
         console.print(Text("  /memory list", style="dim white"))
         console.print(Text("  /memory forget <content>", style="dim white"))
         console.print(Text("  /memory clear", style="dim white"))
+        console.print(Text("  Notifications:", style="gold1"))
+        console.print(Text("  /notify <message>    → send yourself a desktop notification", style="dim white"))
         console.print()
         return True
 
@@ -326,8 +365,12 @@ def handle_slash_command(user_input: str) -> bool:
 
         # ── /watch list ───────────────────────────────
         if sub == "list":
-            watches = list_watches()
+            data = _api("GET", "/watches")
             console.print()
+            if not data or "error" in data:
+                show_error(data.get("error", "Failed to reach API"))
+                return True
+            watches = data.get("watches", [])
             if not watches:
                 console.print(Text("  No active watches.", style="dim white"))
             else:
@@ -338,29 +381,26 @@ def handle_slash_command(user_input: str) -> bool:
             console.print()
             return True
 
-        # ── /watch remove <id> ────────────────────────
         if sub == "remove":
             if len(parts) < 3:
                 show_error("Usage: /watch remove <id>")
                 return True
             watch_id = parts[2]
-            removed  = remove_watch(watch_id)
-            if removed:
-                console.print()
+            data     = _api("DELETE", f"/watches/{watch_id}")
+            console.print()
+            if data and "error" not in data:
                 console.print(Text(f"  ✓ Watch '{watch_id}' removed.", style="green"))
-                console.print()
             else:
-                show_error(f"Watch '{watch_id}' not found.")
+                show_error(data.get("error", f"Watch '{watch_id}' not found."))
+            console.print()
             return True
 
-        # ── /watch add <folder> <pattern> <event> "<task>" ──
         if sub == "add":
             rest   = inp[len("/watch add"):].strip()
             tokens = rest.split(None, 3)
 
             if len(tokens) < 4:
                 show_error('Usage: /watch add <folder> <pattern> <event> "<task>"')
-                show_error('Example: /watch add ~/Dev/Kairos *.py created "review {filepath}"')
                 return True
 
             folder  = tokens[0]
@@ -368,30 +408,23 @@ def handle_slash_command(user_input: str) -> bool:
             event   = tokens[2]
             task    = tokens[3].strip('"')
 
-            try:
-                watch = add_watch(
-                    folder=folder,
-                    task=task,
-                    event=event,
-                    pattern=pattern,
-                )
-                console.print()
-                console.print(Text(f"  ✓ Watch added [{watch['id']}]", style="green"))
-                console.print(Text(f"    Folder:  {watch['folder']}", style="dim white"))
-                console.print(Text(f"    Pattern: {watch['pattern']}", style="dim white"))
-                console.print(Text(f"    Event:   {watch['event']}", style="dim white"))
-                console.print(Text(f"    Task:    {watch['task'][:80]}", style="dim white"))
-                console.print()
-            except ValueError as e:
-                show_error(str(e))
+            data = _api("POST", "/watches", {
+                "folder":  folder,
+                "task":    task,
+                "event":   event,
+                "pattern": pattern,
+            })
+            console.print()
+            if data and "error" not in data:
+                console.print(Text(f"  ✓ Watch added [{data['id']}]", style="green"))
+                console.print(Text(f"    Folder:  {data['folder']}", style="dim white"))
+                console.print(Text(f"    Pattern: {data['pattern']}", style="dim white"))
+                console.print(Text(f"    Event:   {data['event']}", style="dim white"))
+                console.print(Text(f"    Task:    {data['task'][:80]}", style="dim white"))
+            else:
+                show_error(data.get("error", "Failed to add watch."))
+            console.print()
             return True
-
-        # ── Natural language fallback ─────────────────
-        # If subcommand isn't list/remove/add — treat the
-        # entire /watch input as a natural language request
-        # and let the LLM extract folder, pattern, event, task
-        _handle_watch_natural_language(inp)
-        return True
 
     # ── /job ──────────────────────────────────────────────
     if cmd == "/job":
@@ -402,8 +435,12 @@ def handle_slash_command(user_input: str) -> bool:
         sub = parts[1].lower()
 
         if sub == "list":
-            jobs = list_jobs()
+            data = _api("GET", "/jobs")
             console.print()
+            if not data or "error" in data:
+                show_error(data.get("error", "Failed to reach API"))
+                return True
+            jobs = data.get("jobs", [])
             if not jobs:
                 console.print(Text("  No scheduled jobs.", style="dim white"))
             else:
@@ -418,14 +455,14 @@ def handle_slash_command(user_input: str) -> bool:
             if len(parts) < 3:
                 show_error("Usage: /job remove <id>")
                 return True
-            job_id  = parts[2]
-            removed = remove_job(job_id)
-            if removed:
-                console.print()
+            job_id = parts[2]
+            data   = _api("DELETE", f"/jobs/{job_id}")
+            console.print()
+            if data and "error" not in data:
                 console.print(Text(f"  ✓ Job '{job_id}' removed.", style="green"))
-                console.print()
             else:
-                show_error(f"Job '{job_id}' not found.")
+                show_error(data.get("error", f"Job '{job_id}' not found."))
+            console.print()
             return True
 
         if sub == "run":
@@ -433,44 +470,89 @@ def handle_slash_command(user_input: str) -> bool:
                 show_error("Usage: /job run <id>")
                 return True
             job_id = parts[2]
-            try:
-                console.print()
-                console.print(Text(f"  ⌛ Running job '{job_id}'...", style="dim gold1"))
-                result = run_job_now(job_id)
-                show_response(result)
-            except ValueError as e:
-                show_error(str(e))
+            console.print()
+            console.print(Text(f"  ⌛ Running job '{job_id}'...", style="dim gold1"))
+            data = _api("POST", f"/jobs/{job_id}/run")
+            if data and "error" not in data:
+                show_response(data.get("result", "Done."))
+            else:
+                show_error(data.get("error", "Failed to run job."))
             return True
 
         if sub == "add":
-            # Format: /job add "task description" | "every day at 08:00"
-            if len(parts) < 3:
-                show_error('Usage: /job add "<task>" | "<schedule>"')
-                return True
-
-            # Everything after "/job add" — split on " | "
             rest = inp[len("/job add"):].strip()
-
             if " | " not in rest:
                 show_error('Usage: /job add "<task>" | "<schedule>"')
                 return True
-
             task_part, schedule_part = rest.split(" | ", 1)
             task     = task_part.strip().strip('"')
             schedule = schedule_part.strip().strip('"')
 
-            try:
-                job = add_job(task=task, schedule=schedule)
-                console.print()
-                console.print(Text(f"  ✓ Job added [{job['id']}]", style="green"))
-                console.print(Text(f"    Task:     {job['task'][:80]}", style="dim white"))
-                console.print(Text(f"    Schedule: {job['schedule']}", style="dim white"))
-                console.print()
-            except ValueError as e:
-                show_error(str(e))
+            data = _api("POST", "/jobs", {
+                "task":     task,
+                "schedule": schedule,
+            })
+            console.print()
+            if data and "error" not in data:
+                console.print(Text(f"  ✓ Job added [{data['id']}]", style="green"))
+                console.print(Text(f"    Task:     {data['task'][:80]}", style="dim white"))
+                console.print(Text(f"    Schedule: {data['schedule']}", style="dim white"))
+            else:
+                show_error(data.get("error", "Failed to add job."))
+            console.print()
             return True
 
         show_error(f"Unknown /job subcommand: {sub}. Use add|list|remove|run.")
+        return True
+    if sub == "remove":
+        if len(parts) < 3:
+            show_error("Usage: /job remove <id>")
+            return True
+        job_id = parts[2]
+        data   = _api("DELETE", f"/jobs/{job_id}")
+        console.print()
+        if data and "error" not in data:
+            console.print(Text(f"  ✓ Job '{job_id}' removed.", style="green"))
+        else:
+            show_error(data.get("error", f"Job '{job_id}' not found."))
+        console.print()
+        return True
+
+    if sub == "run":
+        if len(parts) < 3:
+            show_error("Usage: /job run <id>")
+            return True
+        job_id = parts[2]
+        console.print()
+        console.print(Text(f"  ⌛ Running job '{job_id}'...", style="dim gold1"))
+        data = _api("POST", f"/jobs/{job_id}/run")
+        if data and "error" not in data:
+            show_response(data.get("result", "Done."))
+        else:
+            show_error(data.get("error", "Failed to run job."))
+        return True
+
+    if sub == "add":
+        rest = inp[len("/job add"):].strip()
+        if " | " not in rest:
+            show_error('Usage: /job add "<task>" | "<schedule>"')
+            return True
+        task_part, schedule_part = rest.split(" | ", 1)
+        task     = task_part.strip().strip('"')
+        schedule = schedule_part.strip().strip('"')
+
+        data = _api("POST", "/jobs", {
+            "task":     task,
+            "schedule": schedule,
+        })
+        console.print()
+        if data and "error" not in data:
+            console.print(Text(f"  ✓ Job added [{data['id']}]", style="green"))
+            console.print(Text(f"    Task:     {data['task'][:80]}", style="dim white"))
+            console.print(Text(f"    Schedule: {data['schedule']}", style="dim white"))
+        else:
+            show_error(data.get("error", "Failed to add job."))
+        console.print()
         return True
     # ── /memory ───────────────────────────────────────────────
     if cmd == "/memory":
@@ -481,6 +563,7 @@ def handle_slash_command(user_input: str) -> bool:
         sub = parts[1].lower()
 
         if sub == "list":
+            # memory is local — no API endpoint for it yet, keep direct call
             mem = list_memory()
             console.print()
             total = sum(len(v) for v in mem.values())
@@ -534,6 +617,25 @@ def handle_slash_command(user_input: str) -> bool:
             return True
 
         show_error(f"Unknown /memory subcommand: {sub}")
+        return True
+    
+    # ── /notify ───────────────────────────────────────────────
+    if cmd == "/notify":
+        # /notify <message>
+        # Quick way to test notifications or send yourself a reminder
+        if len(parts) < 2:
+            show_error("Usage: /notify <message>")
+            return True
+
+        message = " ".join(parts[1:])
+        sent    = notify("Kairos", message)
+
+        console.print()
+        if sent:
+            console.print(Text("  ✓ Notification sent.", style="green"))
+        else:
+            show_error("Notification failed. Check logs/notifications.log")
+        console.print()
         return True
 
     # Unknown slash command
