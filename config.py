@@ -30,4 +30,7 @@ config = {
     # ─── AGENT SETTINGS ───────────────────────────────────────
     "agent_name": "Kairos",
     "max_iterations": 6,  # Max steps Kairos takes before stopping
+
+    "api_port": 8765,
+    "api_host": "127.0.0.1",
 }

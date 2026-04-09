@@ -8,11 +8,11 @@ from ui.terminal import run
 
 def is_api_running() -> bool:
     """
-    Check if the Kairos API is already running on port 8000.
+    Check if the Kairos API is already running on port 8765.
     Returns True if it's up, False if not.
     """
     try:
-        response = requests.get("http://127.0.0.1:8000/status", timeout=2)
+        response = requests.get("http://127.0.0.1:8765/status", timeout=2)
         return response.status_code == 200
     except requests.exceptions.ConnectionError:
         return False
@@ -23,7 +23,7 @@ def start_api():
     uvicorn.run(
         "api:app",
         host="127.0.0.1",
-        port=8000,
+        port=8765,
         log_level="warning",
         reload=False,
     )

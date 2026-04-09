@@ -28,7 +28,7 @@ def _api(method: str, endpoint: str, body: dict = None) -> dict | None:
     Ensures changes go to the correct process (systemd)
     instead of the local terminal process.
     """
-    url = f"http://127.0.0.1:8000{endpoint}"
+    url = f"http://127.0.0.1:8765{endpoint}"
     try:
         if method == "GET":
             r = _requests.get(url, timeout=10)

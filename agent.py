@@ -12,6 +12,11 @@ from tools.file import read_file, write_file, delete_file, list_folder
 from tools.browser import visit_page, search_web
 from memory import get_memory_context, remember
 
+from tools.git import (
+    git_status, git_log, git_diff,
+    git_branches, git_info, git_commit_message
+)
+
 console = Console()
 
 # ─── SYSTEM PROMPT ─────────────────────────────────────────────────────────
@@ -39,10 +44,12 @@ Examples:
   Bad:  "I have successfully completed the installation of the requested packages..."
 
 You have access to the following tools:
-
 1. shell   → Run any terminal/bash command
 2. file    → Read, write, delete files or list folders
 3. browser → Visit a URL or search the web
+4. git     → Git repository operations
+   actions: status | log | diff | branches | info | commit_message
+   input: path to repo (optional — defaults to current directory)
 
 RULES:
 - Always respond with a single JSON object — nothing else.
@@ -79,8 +86,8 @@ RULES:
 RESPONSE FORMAT:
 {
   "thought": "your reasoning about what to do next",
-  "tool": "shell" | "file" | "browser" | "none",
-  "action": "read" | "write" | "delete" | "list" | "visit" | "search" | "run" | "none",
+  "tool": "shell" | "file" | "browser" | "git" | "none",
+  "action": "run" | "read" | "write" | "delete" | "list" | "visit" | "search" | "status" | "log" | "diff" | "branches" | "info" | "commit_message" | "none",
   "input": "the exact input to pass to the tool",
   "answer": "your final answer to the user (only when tool is none)"
 }
@@ -122,6 +129,34 @@ User: search for python list comprehension
   "input": "python list comprehension",
   "answer": ""
 }
+
+User: what is the git status of my project?
+{
+  "thought": "I shall check the repository status.",
+  "tool": "git",
+  "action": "status",
+  "input": "/home/varunkrishnan/Dev/Kairos",
+  "answer": ""
+}
+
+User: show me the last 5 commits
+{
+  "thought": "I shall retrieve recent commit history.",
+  "tool": "git",
+  "action": "log",
+  "input": "/home/varunkrishnan/Dev/Kairos",
+  "answer": ""
+}
+
+User: write a commit message for my staged changes
+{
+  "thought": "I shall examine staged changes and craft a message.",
+  "tool": "git",
+  "action": "commit_message",
+  "input": "/home/varunkrishnan/Dev/Kairos",
+  "answer": ""
+}
+
 """
 
 # ─── TOOL RUNNER ───────────────────────────────────────────────────────────
@@ -184,7 +219,27 @@ def run_tool(tool: str, action: str, input: str)-> str:
         else:
             return result.message
 
+    # ── Git ────────────────────────────────────────────────
+    elif tool == "git":
+        if action == "status":
+            result = git_status(input or None)
+        elif action == "log":
+            result = git_log(input or None)
+        elif action == "diff":
+            result = git_diff(input or None)
+        elif action == "branches":
+            result = git_branches(input or None)
+        elif action == "info":
+            result = git_info(input or None)
+        elif action == "commit_message":
+            result = git_commit_message(input or None)
+        else:
+            return f"Unknown git action: {action}"
+
+        return result.output if result.success else result.message
+    
     return f"Unknown tool: {tool}"
+
 
 # ─── RESPONSE PARSER ───────────────────────────────────────────────────────
 def parse_response(response: str) -> dict:

@@ -6,7 +6,7 @@ Usage:
     from sdk import Kairos
 
     k = Kairos()                          # connects to localhost:8000
-    k = Kairos(base_url="http://x.x.x.x:8000")  # remote instance
+    k = Kairos(base_url="http://x.x.x.x:8765")  # remote instance
 
 Methods:
     k.chat(message, use_planner=True)  → str
@@ -41,18 +41,18 @@ class Kairos:
 
     Args:
         base_url: The URL where the Kairos API is running.
-                  Defaults to localhost on port 8000.
+                  Defaults to localhost on port 8765.
         timeout:  How many seconds to wait for a response before giving up.
                   Kairos can be slow on complex tasks — default is 120s.
     """
 
     def __init__(
         self,
-        base_url: str = "http://127.0.0.1:8000",
+        base_url: str = "http://127.0.0.1:8765",
         timeout:  int = 120,
     ):
         # Strip trailing slash so url joins always work cleanly
-        # e.g. "http://localhost:8000/" → "http://localhost:8000"
+        # e.g. "http://localhost:8765/" → "http://localhost:8765"
         self.base_url = base_url.rstrip("/")
         self.timeout  = timeout
 

@@ -14,7 +14,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "api:app",
         host="127.0.0.1",   # localhost only — change to 0.0.0.0 to expose on network
-        port=8000,
+        port=8765,
         log_level="info",   # more verbose than main.py — logs go to systemd journal
         reload=False,
     )
