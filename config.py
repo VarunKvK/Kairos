@@ -12,7 +12,9 @@ config = {
     # ─── LLM SETTINGS ─────────────────────────────────────────
     # Set "provider" to switch between LLMs.
     # Options: "groq", "gemini", "mistral"
-    "provider": "groq",
+    # "provider": "groq",
+    "provider": "gemma",
+
 
     # ─── API KEYS ─────────────────────────────────────────────
     "groq_api_key": os.getenv("GROK_API_KEY"),
@@ -21,8 +23,9 @@ config = {
     # ─── MODEL NAMES ──────────────────────────────────────────
     # The specific model to use per provider.
     "models": {
-        "groq":    "llama-3.3-70b-versatile",  # Fast & capable, free on Groq
-        "gemini":  "gemini-2.0-flash",          # Fast & free on Gemini
+        "groq":"llama-3.3-70b-versatile",  # Fast & capable, free on Groq
+        "gemini":  "gemini-2.5-flash",
+        "gemini15": "gemini-flash-latest",          # Fast & free on Gemini
         "mistral": "mistral:latest",            # Local fallback via Ollama
         "gemma": "phi4-mini",            # Local fallback via Ollama
     },

@@ -14,25 +14,17 @@ console = Console()
 
 # ─── FALLBACK ORDER ────────────────────────────────────────────────────────
 # Kairos will try each provider in this order if the previous one fails.
-FALLBACK_ORDER = ["groq","gemini","gemma","mistral"]
+FALLBACK_ORDER = ["groq", "gemini", "gemini15", "gemma", "mistral"]
 
 
 
 
 def chat(messages: list) -> str:
     """
-    Send a list of messages to the configured LLM provider.
-    Returns the assistant's response as a string.
-
-    'messages' follows the standard format:
-    [
-        { "role": "system",    "content": "You are Kairos..." },
-        { "role": "user",      "content": "What is Python?"  },
-        { "role": "assistant", "content": "Python is..."     },
-    ]
+    Send messages to LLM with smart fallback.
+    On 429 rate limit — waits 5 seconds before trying next provider.
     """
-
-    primary = config["provider"]
+    primary   = config["provider"]
     providers = [primary] + [p for p in FALLBACK_ORDER if p != primary]
     last_error = None
 
@@ -43,25 +35,35 @@ def chat(messages: list) -> str:
             elif provider == "gemini":
                 response = _chat_gemini(messages)
             elif provider == "gemma":
-                response = _chat_gemma(messages)                
+                response = _chat_gemma(messages)
             elif provider == "mistral":
                 response = _chat_mistral(messages)
+            elif provider == "gemini15":
+                response = _chat_gemini15(messages)
             else:
                 continue
-            # If we're not using the primary, let the user know
+
             if provider != primary:
                 console.print(f"[yellow]⚠ Switched to {provider} (fallback)[/yellow]")
 
             return response
+
         except Exception as e:
-            last_error = e
+            last_error  = e
+            error_str   = str(e)
+            is_rate_limit = "429" in error_str or "Too Many Requests" in error_str
+
             console.print(f"[red]✗ {provider} failed: {e}[/red]")
-            console.print(f"[yellow]→ Trying next provider...[/yellow]")
-            time.sleep(1)  # Small delay before trying next provider
 
-    # If all providers fail, raise the last error
+            if is_rate_limit:
+                # Rate limited — wait longer before next attempt
+                console.print(f"[yellow]→ Rate limited. Waiting 10s...[/yellow]")
+                time.sleep(10)
+            else:
+                console.print(f"[yellow]→ Trying next provider...[/yellow]")
+                time.sleep(1)
+
     raise RuntimeError(f"All providers failed. Last error: {last_error}")
-
 
 
 # ─── GROQ ──────────────────────────────────────────────────────────────────
@@ -124,6 +126,39 @@ def _chat_gemini(messages: list) -> str:
 
     session = requests.Session()
     response = session.post(url , json = body)
+    response.raise_for_status()
+
+    return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+def _chat_gemini15(messages: list) -> str:
+    """Send messages to Gemini 1.5 Flash — separate quota from 2.0."""
+    api_key = config["gemini_api_key"]
+    model   = config["models"]["gemini15"]
+    url     = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+
+    trimmed = [messages[0]] + messages[-4:] if len(messages) > 5 else messages
+    gemini_messages = []
+
+    for msg in trimmed:
+        if msg["role"] == "system":
+            gemini_messages.append({
+                "role":  "user",
+                "parts": [{"text": f"[System]: {msg['content']}"}]
+            })
+        elif msg["role"] == "user":
+            gemini_messages.append({
+                "role":  "user",
+                "parts": [{"text": msg["content"]}]
+            })
+        elif msg["role"] == "assistant":
+            gemini_messages.append({
+                "role":  "model",
+                "parts": [{"text": msg["content"]}]
+            })
+
+    body     = {"contents": gemini_messages}
+    session  = requests.Session()
+    response = session.post(url, json=body)
     response.raise_for_status()
 
     return response.json()["candidates"][0]["content"]["parts"][0]["text"]

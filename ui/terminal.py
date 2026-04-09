@@ -18,6 +18,7 @@ from scheduler import add_job, remove_job, list_jobs, run_job_now
 from friday import add_watch, remove_watch, list_watches
 
 import requests as _requests
+from plugin_manager import list_plugins
 
 
 console = Console()
@@ -352,6 +353,9 @@ def handle_slash_command(user_input: str) -> bool:
         console.print(Text("  /memory clear", style="dim white"))
         console.print(Text("  Notifications:", style="gold1"))
         console.print(Text("  /notify <message>    → send yourself a desktop notification", style="dim white"))
+        console.print(Text("  Plugins:", style="gold1"))
+        console.print(Text("  /plugins    → list all loaded plugins", style="dim white"))
+
         console.print()
         return True
 
@@ -504,56 +508,23 @@ def handle_slash_command(user_input: str) -> bool:
 
         show_error(f"Unknown /job subcommand: {sub}. Use add|list|remove|run.")
         return True
-    if sub == "remove":
-        if len(parts) < 3:
-            show_error("Usage: /job remove <id>")
-            return True
-        job_id = parts[2]
-        data   = _api("DELETE", f"/jobs/{job_id}")
+
+    # ── /plugins ──────────────────────────────────────────
+    if cmd == "/plugins":
+        plugins = list_plugins()
         console.print()
-        if data and "error" not in data:
-            console.print(Text(f"  ✓ Job '{job_id}' removed.", style="green"))
+        if not plugins:
+            console.print(Text("  No plugins loaded.", style="dim white"))
         else:
-            show_error(data.get("error", f"Job '{job_id}' not found."))
+            console.print(Text(f"  {len(plugins)} plugin(s) loaded:", style="gold1"))
+            for p in plugins:
+                actions = ", ".join(p["actions"])
+                console.print(Text(f"  [{p['name']}] {p['description']}", style="dim white"))
+                console.print(Text(f"    Actions: {actions}", style="dim gold1"))
         console.print()
         return True
 
-    if sub == "run":
-        if len(parts) < 3:
-            show_error("Usage: /job run <id>")
-            return True
-        job_id = parts[2]
-        console.print()
-        console.print(Text(f"  ⌛ Running job '{job_id}'...", style="dim gold1"))
-        data = _api("POST", f"/jobs/{job_id}/run")
-        if data and "error" not in data:
-            show_response(data.get("result", "Done."))
-        else:
-            show_error(data.get("error", "Failed to run job."))
-        return True
 
-    if sub == "add":
-        rest = inp[len("/job add"):].strip()
-        if " | " not in rest:
-            show_error('Usage: /job add "<task>" | "<schedule>"')
-            return True
-        task_part, schedule_part = rest.split(" | ", 1)
-        task     = task_part.strip().strip('"')
-        schedule = schedule_part.strip().strip('"')
-
-        data = _api("POST", "/jobs", {
-            "task":     task,
-            "schedule": schedule,
-        })
-        console.print()
-        if data and "error" not in data:
-            console.print(Text(f"  ✓ Job added [{data['id']}]", style="green"))
-            console.print(Text(f"    Task:     {data['task'][:80]}", style="dim white"))
-            console.print(Text(f"    Schedule: {data['schedule']}", style="dim white"))
-        else:
-            show_error(data.get("error", "Failed to add job."))
-        console.print()
-        return True
     # ── /memory ───────────────────────────────────────────────
     if cmd == "/memory":
         if len(parts) < 2:
@@ -637,7 +608,7 @@ def handle_slash_command(user_input: str) -> bool:
             show_error("Notification failed. Check logs/notifications.log")
         console.print()
         return True
-
+    
     # Unknown slash command
     show_error(f"Unknown command: {cmd}. Type /help for available commands.")
     return True
