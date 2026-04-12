@@ -30,6 +30,8 @@ console = Console()
 
 def _build_system_prompt() -> str:
     """Build system prompt — keep it short to save tokens."""
+    import os
+    home         = os.path.expanduser("~")
     plugin_names = ", ".join(p["name"] for p in list_plugins()) or "none"
 
     return f"""
@@ -37,6 +39,12 @@ You are Kairos (Καιρός) — the Greek god of the opportune moment.
 You are precise, composed, and act only when the moment is right.
 You speak with quiet confidence — never verbose, never uncertain.
 You are running on a Linux system and help the user complete tasks autonomously.
+
+CURRENT CONTEXT:
+- Home directory: {home}
+- User: varunkrishnan
+- Working directory: injected per message as [User is in directory: ...]
+...
 
 Your character:
 - Speak as ancient Greek inscriptions — sparse, symbolic, final.
@@ -62,6 +70,27 @@ RULES:
 - Never use crontab -e — use: (crontab -l 2>/dev/null; echo "...") | crontab -
 - Never use curl for web searches — use browser tool action "search"
 - Always use quoted strings in JSON. Never write: "tool": none
+- To open a file or folder in the GUI file manager use: xdg-open <path>
+  Example: xdg-open /home/varunkrishnan/Dev/Kairos
+  Example: xdg-open /home/varunkrishnan/Dev/Kairos/notes.md
+- To open a URL in the browser use: xdg-open <url>
+  Example: xdg-open https://github.com/VarunKvK/Kairos
+- To open files/folders always use full absolute path:
+  xdg-open /home/varunkrishnan/Downloads
+  xdg-open /home/varunkrishnan/Dev/Kairos
+  NEVER use: xdg-open Downloads (relative paths fail)
+  NEVER use: xdg-open ~/Downloads (~ not expanded in shell tool)
+- To open any file or folder in the GUI file manager run exactly:
+  DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus xdg-open /absolute/path
+  Always prepend the display variables — without them xdg-open fails silently
+  Always use absolute paths starting with /home/varunkrishnan/
+  Example: DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus xdg-open /home/varunkrishnan/Dev/Kairos
+- When user message contains [User is in directory: /some/path]:
+  ALWAYS use that exact path for all file and shell operations
+  For shell commands use: cd /that/path && your_command
+  NEVER run commands without cd-ing to the user's directory first
+  Example: cd /home/varunkrishnan/Dev && ls -d */
+
 
 RESPONSE FORMAT:
 {{
@@ -71,6 +100,43 @@ RESPONSE FORMAT:
   "input": "the input",
   "answer": "final answer (only when tool is none)"
 }}
+
+PLUGIN USAGE EXAMPLES:
+User: add a note about something
+{{
+  "thought": "I shall save this note.",
+  "tool": "plugin",
+  "action": "notes",
+  "input": "add|the note content here",
+  "answer": ""
+}}
+
+User: show today's notes
+{{
+  "thought": "I shall retrieve today's notes.",
+  "tool": "plugin",
+  "action": "notes",
+  "input": "today|",
+  "answer": ""
+}}
+
+User: convert 100 celsius to fahrenheit
+{{
+  "thought": "I shall convert the temperature.",
+  "tool": "plugin",
+  "action": "converter",
+  "input": "temperature|100 celsius fahrenheit",
+  "answer": ""
+}}
+
+User: set a timer for 5 minutes
+{{
+  "thought": "I shall set a countdown timer.",
+  "tool": "plugin",
+  "action": "timer",
+  "input": "set|5 minutes",
+  "answer": ""
+}}
 """
 
 # Build once at import time
@@ -78,7 +144,7 @@ SYSTEM_PROMPT = _build_system_prompt()
 
 
 # ─── TOOL RUNNER ───────────────────────────────────────────────────────────
-def run_tool(tool: str, action: str, input: str)-> str:
+def run_tool(tool: str, action: str, input: str, cwd: str = None)-> str:
     """
     Takes the tool, action and input from Kairos's response
     and runs the appropriate function.
@@ -87,7 +153,7 @@ def run_tool(tool: str, action: str, input: str)-> str:
 
     # ── Shell ──────────────────────────────────────────────
     if tool == "shell":
-        result = run_command(input)
+        result = run_command(input, cwd = cwd)
         if result.success:
             return result.stdout or "Command ran successfully with no output."
         else:
@@ -158,14 +224,18 @@ def run_tool(tool: str, action: str, input: str)-> str:
     
     # ── Plugin ─────────────────────────────────────────────
     elif tool == "plugin":
-        # action = plugin name (e.g. "weather")
-        # inp    = "sub_action|actual_input"
-        # e.g.  action="weather", inp="current|London"
+        # action = plugin name (e.g. "notes", "converter", "timer")
+        # input format: "sub_action|actual_input"
+        # e.g. "add|my note here" or "temperature|100 celsius fahrenheit"
         if "|" in input:
             sub_action, actual_input = input.split("|", 1)
         else:
             sub_action   = input
             actual_input = ""
+
+        sub_action   = sub_action.strip()
+        actual_input = actual_input.strip()
+
         return run_plugin(action, sub_action, actual_input)
 
     return f"Unknown tool: {tool}"
@@ -216,6 +286,10 @@ def parse_response(response: str) -> dict:
 def run_agent(user_message: str, history: list) -> tuple[str, list]:
     """Main agent loop with memory injection."""
 
+    import re
+    cwd_match = re.match(r'\[User is in directory: (.+?)\]\n', user_message)
+    user_cwd  = cwd_match.group(1) if cwd_match else None
+
     history.append({"role": "user", "content": user_message})
 
     # ── Inject memory into system prompt ──────────────────
@@ -252,7 +326,7 @@ def run_agent(user_message: str, history: list) -> tuple[str, list]:
             history.append({"role": "assistant", "content": answer})
             return answer, history
 
-        tool_result = run_tool(tool, action, inp)
+        tool_result = run_tool(tool, action, inp, cwd=user_cwd)
 
         MAX_RESULT_LENGTH = 1500
         if len(tool_result) > MAX_RESULT_LENGTH:
