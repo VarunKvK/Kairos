@@ -248,7 +248,8 @@ class KairosEventHandler(FileSystemEventHandler):
         Builds the task, runs it through Kairos, logs the result.
         """
         # Replace {filepath} placeholder in task template
-        task = self.task_template.replace("{filepath}", filepath)
+        task = self.task.replace("{filepath}", event_path)
+        task = f"[Watched folder: {self.folder}]\n{task}"
 
         log.info(f"[{self.watch_id}] {event_type.upper()}: {filepath}")
         log.info(f"[{self.watch_id}] Running task: {task}")

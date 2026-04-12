@@ -12,8 +12,8 @@ config = {
     # ─── LLM SETTINGS ─────────────────────────────────────────
     # Set "provider" to switch between LLMs.
     # Options: "groq", "gemini", "mistral"
-    # "provider": "groq",
-    "provider": "gemma",
+    "provider": "groq",
+    # "provider": "gemma",
 
 
     # ─── API KEYS ─────────────────────────────────────────────
