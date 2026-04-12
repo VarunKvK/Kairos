@@ -5,11 +5,15 @@ import time
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.styles import Style
+from datetime import datetime
+from rich.live import Live
 from rich.console import Console
 from rich.text import Text
 from rich.rule import Rule
 from rich.live import Live
 from rich.align import Align
+from pathlib import Path
+
 from agent import run_agent
 from planner import run_planner
 from config import config
@@ -65,16 +69,16 @@ PROMPT_STYLE = Style.from_dict({
 # ─── WELCOME SCREEN ────────────────────────────────────────────────────────
 
 def show_welcome():
-    """
-    Clean, instant welcome — no animation.
-    Claude Code style: just text, no heavy panels.
-    """
-
+    import os
+    # Use launch directory if set — otherwise fall back to cwd
+    cwd = os.environ.get("KAIROS_LAUNCH_DIR", os.getcwd())
+    
     console.print()
     console.print(Text("  ⚡ KAIROS  Κ Α Ι Ρ Ο Σ", style="bold gold1"))
     console.print(Text("  God of the Opportune Moment", style="italic dim white"))
     console.print()
     console.print(Text(f"  Provider  {config['provider'].upper()}  ·  {config['models'][config['provider']]}", style="dim white"))
+    console.print(Text(f"  Location  {cwd}", style="dim white"))   # ← add this
     console.print(Text("  Status    Ready", style="dim green"))
     console.print()
     console.print(Rule(style="dim gold1"))
@@ -355,6 +359,9 @@ def handle_slash_command(user_input: str) -> bool:
         console.print(Text("  /notify <message>    → send yourself a desktop notification", style="dim white"))
         console.print(Text("  Plugins:", style="gold1"))
         console.print(Text("  /plugins    → list all loaded plugins", style="dim white"))
+        console.print(Text("  /open <path>  → open file, folder or URL in GUI", style="dim white"))
+        console.print(Text("  /timer        → list active timers", style="dim white"))
+        console.print(Text("  /timer <id>   → watch live countdown", style="dim white"))
 
         console.print()
         return True
@@ -400,6 +407,7 @@ def handle_slash_command(user_input: str) -> bool:
             return True
 
         if sub == "add":
+            import os
             rest   = inp[len("/watch add"):].strip()
             tokens = rest.split(None, 3)
 
@@ -407,10 +415,40 @@ def handle_slash_command(user_input: str) -> bool:
                 show_error('Usage: /watch add <folder> <pattern> <event> "<task>"')
                 return True
 
+            # Extract the four parts
             folder  = tokens[0]
             pattern = tokens[1]
             event   = tokens[2]
             task    = tokens[3].strip('"')
+
+            # CWD is where the user launched kairos from — set by /usr/local/bin/kairos
+            # The API runs under systemd and has a different CWD — never trust os.getcwd() here
+            cwd      = os.environ.get("KAIROS_LAUNCH_DIR", os.getcwd())
+            cwd_path = Path(cwd).resolve()
+
+            # Step 1 — expand ~ if present
+            folder_path = Path(folder).expanduser()
+
+            # Step 2 — if still relative, resolve it
+            if not folder_path.is_absolute():
+                # Did the user type the name of the CWD folder itself?
+                # e.g. CWD = /home/x/Dev/Scripts/Hermes and input = "Hermes"
+                if cwd_path.name == folder:
+                    folder_path = cwd_path          # They meant the CWD itself
+                else:
+                    # Treat as a subfolder inside CWD
+                    folder_path = (cwd_path / folder_path).resolve()
+            else:
+                # Already absolute — just clean it up
+                folder_path = folder_path.resolve()
+
+            folder = str(folder_path)
+
+            # Validate before sending to API
+            if not folder_path.exists():
+                show_error(f"Folder does not exist: {folder}")
+                console.print()
+                return True
 
             data = _api("POST", "/watches", {
                 "folder":  folder,
@@ -524,7 +562,181 @@ def handle_slash_command(user_input: str) -> bool:
         console.print()
         return True
 
+    # ── /timer ────────────────────────────────────────────
+    if cmd == "/timer":
+        # /timer <id> → show live countdown for a timer
+        from plugin_manager import get_plugin
+        import time as _time
 
+        timer_plugin = get_plugin("timer")
+        if not timer_plugin:
+            show_error("Timer plugin not loaded.")
+            return True
+
+        if len(parts) < 2:
+            # Just list timers
+            result = timer_plugin.run("list", "")
+            console.print()
+            console.print(Text(f"  {result}", style="dim white"))
+            console.print()
+            return True
+
+        # Show live countdown
+        try:
+            tid     = int(parts[1])
+            console.print()
+            console.print(Text(f"  Watching timer #{tid} — Ctrl+C to stop", style="dim gold1"))
+            console.print()
+
+            with Live(console=console, refresh_per_second=1) as live:
+                while True:
+                    with timer_plugin._lock:
+                        timer = timer_plugin._timers.get(tid)
+
+                    if not timer:
+                        live.update(Text("  Timer not found.", style="red"))
+                        break
+
+                    if not timer["active"]:
+                        live.update(Text(f"  ⏰ '{timer['label']}' — Done!", style="gold1"))
+                        _time.sleep(1)
+                        break
+
+                    remaining = (timer["ends_at"] - datetime.now()).total_seconds()
+                    if remaining <= 0:
+                        live.update(Text(f"  ⏰ '{timer['label']}' — Done!", style="gold1"))
+                        _time.sleep(1)
+                        break
+
+                    mins = int(remaining // 60)
+                    secs = int(remaining % 60)
+                    hrs  = int(mins // 60)
+                    mins = mins % 60
+
+                    if hrs > 0:
+                        time_str = f"{hrs:02d}:{mins:02d}:{secs:02d}"
+                    else:
+                        time_str = f"{mins:02d}:{secs:02d}"
+
+                    live.update(Text(
+                        f"  ⏰ [{tid}] '{timer['label']}' — {time_str} remaining",
+                        style="gold1"
+                    ))
+                    _time.sleep(1)
+
+            console.print()
+
+        except ValueError:
+            show_error(f"Invalid timer ID: {parts[1]}")
+        except KeyboardInterrupt:
+            console.print()
+            console.print(Text("  Timer watch stopped.", style="dim white"))
+            console.print()
+
+        return True
+
+    # ── /open ─────────────────────────────────────────────
+    if cmd == "/open":
+        if len(parts) < 2:
+            show_error("Usage: /open <file|folder|url|search query>")
+            return True
+
+        import os
+        cwd = os.environ.get("KAIROS_LAUNCH_DIR", os.getcwd())
+        path = " ".join(parts[1:])
+
+        # URL check first
+        if path.startswith("http://") or path.startswith("https://"):
+            final_path = path
+
+        # Search query
+        elif any(path.lower().startswith(t) for t in
+                ["search ", "google ", "look up ", "find "]):
+            for trigger in ["search ", "google ", "look up ", "find "]:
+                if path.lower().startswith(trigger):
+                    query      = path[len(trigger):].strip()
+                    encoded    = query.replace(" ", "+")
+                    final_path = f"https://duckduckgo.com/?q={encoded}"
+                    break
+
+        # File or folder
+        else:
+            # Strip trailing keywords
+            for keyword in [" folder", " file", " directory", " dir"]:
+                if path.lower().endswith(keyword):
+                    path = path[:-len(keyword)].strip()
+                    break
+
+            # Shortcuts — include current dir
+            shortcuts = {
+                "downloads": str(Path.home() / "Downloads"),
+                "desktop":   str(Path.home() / "Desktop"),
+                "documents": str(Path.home() / "Documents"),
+                "dev":       str(Path.home() / "Dev"),
+                "home":      str(Path.home()),
+                "kairos":    str(Path.home() / "Dev/Kairos"),
+                "pictures":  str(Path.home() / "Pictures"),
+                "videos":    str(Path.home() / "Videos"),
+                "music":     str(Path.home() / "Music"),
+                "here":      cwd,
+                "this":      cwd,
+                "current":   cwd,
+                ".":         cwd,
+            }
+
+            path_lower = path.lower().strip()
+
+            if path_lower in shortcuts:
+                final_path = shortcuts[path_lower]
+            else:
+                # Expand ~
+                path = path.replace("~", str(Path.home()))
+
+                if path.startswith("/"):
+                    # Absolute path — use as is
+                    final_path = path
+                else:
+                    # Relative path — resolve from CWD first
+                    relative = Path(cwd) / path
+                    if relative.exists():
+                        final_path = str(relative)
+                    else:
+                        # Try home directory
+                        from_home = Path.home() / path
+                        if from_home.exists():
+                            final_path = str(from_home)
+                        else:
+                            # Use as-is and let xdg-open handle the error
+                            final_path = str(relative)
+
+        # Open it
+        env = {
+            **os.environ,
+            "DISPLAY": os.environ.get("DISPLAY", ":0"),
+            "DBUS_SESSION_BUS_ADDRESS": os.environ.get(
+                "DBUS_SESSION_BUS_ADDRESS",
+                f"unix:path=/run/user/{os.getuid()}/bus"
+            ),
+        }
+
+        import subprocess
+        try:
+            subprocess.Popen(
+                ["xdg-open", final_path],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            console.print()
+            if final_path.startswith("http"):
+                console.print(Text(f"  ✓ Opening browser: {final_path}", style="green"))
+            else:
+                console.print(Text(f"  ✓ Opening: {final_path}", style="green"))
+            console.print()
+        except Exception as e:
+            show_error(f"Could not open: {e}")
+        return True
+        
     # ── /memory ───────────────────────────────────────────────
     if cmd == "/memory":
         if len(parts) < 2:
@@ -637,19 +849,23 @@ def run():
                 show_farewell()
                 break
 
-            # ── Handle slash commands before LLM ──────────
             if user_input.startswith("/"):
                 handle_slash_command(user_input)
                 continue
 
-            # ── Normal message → agent ────────────────────
             console.print()
-            answer, history = run_planner(user_input, history)  # ← history passed
+
+            # Inject current working directory into every message
+            # So Kairos knows where the user actually is
+            import os
+            cwd        = os.environ.get("KAIROS_LAUNCH_DIR", os.getcwd())
+            contextual = f"[User is in directory: {cwd}]\n{user_input}"
+
+            answer, history = run_planner(contextual, history)
             show_response(answer)
 
         except KeyboardInterrupt:
             show_farewell()
             break
-
         except Exception as e:
             show_error(f"Something went wrong: {str(e)}")
