@@ -53,3 +53,4 @@ monitor_py.sh
 python_files.txt
 memory.json
 data/
+data/brain.md

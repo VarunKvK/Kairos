@@ -20,6 +20,8 @@ from config import config
 
 from scheduler import add_job, remove_job, list_jobs, run_job_now
 from friday import add_watch, remove_watch, list_watches
+from memory import remember, forget, forget_all, list_memory
+from notifications import notify
 
 import requests as _requests
 from plugin_manager import list_plugins
@@ -746,10 +748,9 @@ def handle_slash_command(user_input: str) -> bool:
         sub = parts[1].lower()
 
         if sub == "list":
-            # memory is local — no API endpoint for it yet, keep direct call
-            mem = list_memory()
-            console.print()
+            mem   = list_memory()
             total = sum(len(v) for v in mem.values())
+            console.print()
             if total == 0:
                 console.print(Text("  No memories stored.", style="dim white"))
             else:
@@ -762,14 +763,26 @@ def handle_slash_command(user_input: str) -> bool:
             return True
 
         if sub == "add":
-            # /memory add <category> <fact>
-            # /memory add facts My name is Varun
-            if len(parts) < 4:
-                show_error('Usage: /memory add <facts|preferences|projects> <content>')
+            # Re-split the original input with no limit to get all parts cleanly
+            # parts = ["/memory", "add", "facts", "My name is Varun..."]
+            # but original parts was split(None, 3) so parts[3] is the full rest
+            # We need to re-split to separate category from content
+            all_parts = inp.split(None)   # split with no limit — every word
+
+            # /memory add <category> <content...>
+            # all_parts[0]=/memory [1]=add [2]=facts [3]=My [4]=name ...
+            if len(all_parts) < 4:
+                show_error("Usage: /memory add <facts|preferences|projects> <content>")
                 return True
-            category = parts[2].lower()
-            fact     = " ".join(parts[3:]) if len(parts) > 3 else parts[2]
-            saved    = remember(fact, category)
+
+            category = parts[2].lower()                  # "facts"
+            fact = " ".join(parts[3:])               # "My name is Varun..."
+
+            if category not in ("facts", "preferences", "projects"):
+                show_error(f"Unknown category '{category}'. Use: facts, preferences, projects")
+                return True
+
+            saved = remember(fact, category)
             console.print()
             if saved:
                 console.print(Text(f"  ✓ Remembered: {fact}", style="green"))
@@ -779,10 +792,11 @@ def handle_slash_command(user_input: str) -> bool:
             return True
 
         if sub == "forget":
-            if len(parts) < 3:
-                show_error('Usage: /memory forget <fact>')
+            all_parts = inp.split(None, 2)   # ["/memory", "forget", "the fact..."]
+            if len(all_parts) < 3:
+                show_error("Usage: /memory forget <fact>")
                 return True
-            fact    = " ".join(parts[2:])
+            fact    = all_parts[2]
             removed = forget(fact)
             console.print()
             if removed:
@@ -799,10 +813,8 @@ def handle_slash_command(user_input: str) -> bool:
             console.print()
             return True
 
-        show_error(f"Unknown /memory subcommand: {sub}")
-        return True
-    
-    # ── /notify ───────────────────────────────────────────────
+        show_error(f"Unknown /memory subcommand: {sub}. Use add|list|forget|clear")
+        return True    # ── /notify ───────────────────────────────────────────────
     if cmd == "/notify":
         # /notify <message>
         # Quick way to test notifications or send yourself a reminder

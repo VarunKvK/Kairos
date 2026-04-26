@@ -14,7 +14,8 @@ console = Console()
 
 # ─── FALLBACK ORDER ────────────────────────────────────────────────────────
 # Kairos will try each provider in this order if the previous one fails.
-FALLBACK_ORDER = ["groq", "gemini", "gemini15", "gemma", "mistral"]
+# FALLBACK_ORDER = ["phi", "gemma" ,  "mistral", "groq", "gemini", "gemini15"]
+FALLBACK_ORDER = ["groq", "gemini", "gemini15", "phi", "mistral", "gemma"]
 
 
 
@@ -40,6 +41,8 @@ def chat(messages: list) -> str:
                 response = _chat_mistral(messages)
             elif provider == "gemini15":
                 response = _chat_gemini15(messages)
+            elif provider == "phi":
+                response = _chat_phi(messages)  
             else:
                 continue
 
@@ -203,7 +206,7 @@ def _chat_mistral(messages: list, timeout: int =180) -> str:
 
 # ─── GEMMA (OLLAMA) ────────────────────────────────────────────────────────
 
-def _chat_gemma(messages: list, timeout: int = 180) -> str:
+def _chat_gemma(messages: list, timeout: int = 60) -> str:
     """
     Send messages to local Gemma 4 via Ollama.
     Same thread+timeout pattern as Mistral — never hangs.
@@ -229,6 +232,39 @@ def _chat_gemma(messages: list, timeout: int = 180) -> str:
 
     if thread.is_alive():
         raise RuntimeError(f"Gemma timed out after {timeout} seconds.")
+
+    if "value" in error:
+        raise error["value"]
+
+    return result["content"]
+
+# ─── PHI4-MINI (OLLAMA) ────────────────────────────────────────────────────
+
+def _chat_phi(messages: list, timeout: int = 60) -> str:
+    """
+    Send messages to local phi4-mini via Ollama.
+    Smallest and fastest local model — 2.5GB.
+    Used as the primary local fallback.
+    """
+    result = {}
+    error  = {}
+
+    def target():
+        try:
+            response = ollama.chat(
+                model    = config["models"]["phi"],
+                messages = messages,
+            )
+            result["content"] = response["message"]["content"]
+        except Exception as e:
+            error["value"] = e
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+
+    if thread.is_alive():
+        raise RuntimeError(f"phi4-mini timed out after {timeout} seconds.")
 
     if "value" in error:
         raise error["value"]

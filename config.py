@@ -14,10 +14,12 @@ config = {
     # Options: "groq", "gemini", "mistral"
     "provider": "groq",
     # "provider": "gemma",
+    # "provider": "phi",
+
 
 
     # ─── API KEYS ─────────────────────────────────────────────
-    "groq_api_key": os.getenv("GROK_API_KEY"),
+    "groq_api_key": os.getenv("GROQ_API_KEY"),
     "gemini_api_key": os.getenv("GEMINI_API_KEY"),
 
     # ─── MODEL NAMES ──────────────────────────────────────────
@@ -27,7 +29,8 @@ config = {
         "gemini":  "gemini-2.5-flash",
         "gemini15": "gemini-flash-latest",          # Fast & free on Gemini
         "mistral": "mistral:latest",            # Local fallback via Ollama
-        "gemma": "phi4-mini",            # Local fallback via Ollama
+        "gemma": "gemma4:e4b-it-q4_K_M",            # Local fallback via Ollama
+        "phi": "phi4-mini",            # Local fallback via Ollama
     },
 
     # ─── AGENT SETTINGS ───────────────────────────────────────

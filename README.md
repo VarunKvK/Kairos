@@ -1,281 +1,296 @@
-<div align="center">
+# Perfect — No Sensitive Files Exposed ✅
 
-# ⚡ KAIROS (Καιρός)
-
-**God of the Opportune Moment**
-
-*A locally-running, terminal-first AI agent built from scratch in Python on Linux.*
-
-![Python](https://img.shields.io/badge/Python-3.12-blue?style=flat-square&logo=python)
-![Linux](https://img.shields.io/badge/OS-Ubuntu%2024.04-orange?style=flat-square&logo=ubuntu)
-![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=flat-square)
-
-</div>
+Your `.gitignore` is protecting everything correctly. No API keys, no personal data in the repo.
 
 ---
 
-## 🧠 What is Kairos?
+## Step 1 — Write a Proper `README.md`
 
-Kairos is an AI agent that runs entirely on your Linux machine. It can think, 
-plan, and act — writing code, managing files, browsing the web, and automating 
-tasks through a beautiful terminal interface.
+```bash
+nano ~/Dev/Kairos/README.md
+```
 
-Named after the Greek god of the opportune moment — Kairos acts precisely when 
-needed, never before, never after.
+Replace everything with this:
 
----
+```markdown
+# ⚡ KAIROS — AI Agent Built From Scratch
 
-## ✨ Features
+> **Kairos** (Καιρός) — Greek god of the opportune moment.
 
-- 🖥️ **Terminal UI** — Greek-themed, gold-accented terminal interface
-- 🤖 **ReAct Agent Loop** — thinks, acts, observes, repeats until done
-- 🧩 **Smart Planner** — breaks complex tasks into subtasks automatically
-- 🔧 **Tool Use** — shell commands, file operations, web browsing
-- 🌐 **REST API** — expose Kairos over HTTP with FastAPI
-- 🐍 **Python SDK** — use Kairos programmatically in any Python script
-- ⏰ **Scheduled Tasks** — run tasks automatically on a schedule
-- 👁️ **FRIDAY** — background filesystem watcher that reacts to events
-- 🔄 **Auto-Fallback LLM** — Groq → Gemini → phi4-mini → Mistral
+A locally-running, terminal-first AI agent built from scratch in Python that can:
 
----
-
-## 🤖 LLM Providers
-
-| Provider | Model | Role |
-|---|---|---|
-| **Groq** | `llama-3.3-70b-versatile` | Primary (fastest) |
-| **Gemini** | `gemini-2.0-flash` | Fallback 1 |
-| **phi4-mini** | via Ollama | Fallback 2 (local) |
-| **Mistral** | via Ollama | Fallback 3 (local) |
-
-Kairos automatically falls back to the next provider if one fails.
-Local models (phi4-mini, Mistral) are free and run entirely on your machine.
-
----
-
-## 🖥️ System Requirements
-
-| | |
-|---|---|
-| OS | Ubuntu 24.04 (Linux) |
-| Python | 3.12+ |
-| RAM | 8GB minimum (16GB recommended) |
-| Ollama | Required for local model fallback |
+- 🧠 Execute code and manage files
+- 🌐 Browse the web and search
+- 📅 Schedule tasks and automate workflows  
+- 👁️ Watch filesystem events (FRIDAY)
+- 🔌 Extend with plugins
+- 💾 Remember facts across sessions
+- 🎯 Plan and execute multi-step tasks
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Clone the repo
+### Prerequisites
+
+- Python 3.10+
+- Ubuntu/Debian Linux (tested on Ubuntu 24.04)
+- Ollama (optional — for local models)
+
+### Install
 
 ```bash
-git clone https://github.com/yourusername/kairos.git
-cd kairos
-```
+# Clone the repo
+git clone https://github.com/YourUsername/Kairos.git
+cd Kairos
 
-### 2. Create virtual environment
-
-```bash
+# Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
-```
 
-### 3. Install dependencies
-
-```bash
+# Install dependencies
 pip install -r requirements.txt
+
+# Install Playwright browsers
 playwright install chromium
-```
 
-### 4. Install Ollama + local models
-
-```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull local fallback models
-ollama pull phi4-mini
-ollama pull mistral
-```
-
-### 5. Set up API keys
-
-```bash
+# Set up environment variables
 cp .env.example .env
+nano .env  # Add your API keys
 ```
 
-Edit `.env` and add your keys:
-```
-GROQ_API_KEY=your_groq_api_key_here
-GEMINI_API_KEY=your_gemini_api_key_here
-```
+### API Keys
 
-Get your keys:
-- Groq (free): https://console.groq.com
-- Gemini (free): https://aistudio.google.com
+Get free API keys:
 
-### 6. Run Kairos
+- **Groq:** https://console.groq.com (fastest, recommended)
+- **Google Gemini:** https://aistudio.google.com/app/apikey
+
+Add them to `.env`:
 
 ```bash
-python3 main.py
+GROQ_API_KEY=gsk_...
+GEMINI_API_KEY=AIza...
 ```
 
-This starts both the terminal UI and the REST API simultaneously.
+### Run
+
+```bash
+# Start Kairos
+python3 main.py
+
+# Or install globally
+pip install -e .
+kairos  # run from anywhere
+```
 
 ---
 
-## 📁 Project Structure
+## 🎯 What Can It Do?
+
+```
+You → what files are in my current directory?
+Kairos → [lists files using shell tool]
+
+You → search for "Python async best practices" and summarize the top result
+Kairos → [searches DuckDuckGo, visits page, summarizes]
+
+You → watch my Downloads folder and summarize any new PDFs
+Kairos → [sets up FRIDAY watch, auto-processes files]
+
+You → remind me to take a break in 25 minutes
+Kairos → [schedules task, sends desktop notification]
+```
+
+---
+
+## 🛠️ Architecture
 
 ```
 Kairos/
-├── .env.example          ← API key template
-├── requirements.txt      ← Python dependencies
-├── config.py             ← All settings
-├── main.py               ← Entry point (starts UI + API)
-├── llm.py                ← LLM brain with auto-fallback
-├── agent.py              ← ReAct agent loop
-├── planner.py            ← Multi-step task planner
-├── api.py                ← REST API (FastAPI)
-├── scheduler.py          ← Scheduled tasks (APScheduler)
-├── friday.py             ← Background filesystem watcher
-├── sdk/
-│   ├── __init__.py       ← Package exports
-│   └── client.py         ← Python SDK client
-├── tools/
-│   ├── shell.py          ← Run terminal commands
-│   ├── file.py           ← File operations
-│   └── browser.py        ← Web browsing
-├── logs/                 ← Auto-created, git-ignored
-└── ui/
-    └── terminal.py       ← Terminal UI
+├── agent.py          — ReAct agent loop
+├── planner.py        — Multi-step task planner  
+├── llm.py            — LLM with auto-fallback
+├── memory.py         — Long-term memory system
+├── scheduler.py      — Scheduled tasks (APScheduler)
+├── friday.py         — Filesystem watcher (watchdog)
+├── api.py            — REST API (FastAPI)
+├── tools/            — Shell, File, Browser, Git
+├── plugins/          — Calculator, System, Weather, Notes, Timer, Converter
+└── ui/terminal.py    — Terminal interface
 ```
 
 ---
 
-## 🌐 REST API
+## 🔧 Configuration
 
-The API runs at `http://127.0.0.1:8000` when Kairos is active.
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/chat` | Send a message |
-| `POST` | `/plan` | Trigger planner directly |
-| `GET` | `/status` | Health check |
-| `GET` | `/history` | Conversation history |
-| `DELETE` | `/history` | Clear history |
-| `POST` | `/jobs` | Add scheduled job |
-| `GET` | `/jobs` | List all jobs |
-| `DELETE` | `/jobs/{id}` | Remove a job |
-| `POST` | `/jobs/{id}/run` | Run job immediately |
-| `GET` | `/jobs/logs` | View scheduler logs |
-| `POST` | `/watches` | Add filesystem watch |
-| `GET` | `/watches` | List all watches |
-| `DELETE` | `/watches/{id}` | Remove a watch |
-| `GET` | `/watches/logs` | View FRIDAY logs |
-
-Interactive docs: `http://127.0.0.1:8000/docs`
-
----
-
-## 🐍 Python SDK
+Edit `config.py`:
 
 ```python
-from sdk import Kairos
-
-k = Kairos()
-
-# Chat
-response = k.chat("list all python files in my project")
-print(response)
-
-# Check status
-info = k.status()
-print(info["provider"])
-
-# Clear history
-k.clear_history()
+config = {
+    "provider": "groq",      # groq, gemini, phi, mistral
+    "max_iterations": 6,     # max agent steps
+    "api_port": 8765,
+}
 ```
 
 ---
 
-## ⏰ Scheduled Tasks
+## 🔌 Plugins
+
+Kairos auto-loads plugins from `plugins/`. Included:
+
+- **calculator** — Safe math evaluation
+- **system** — CPU/RAM/disk/process info
+- **weather** — Weather lookup via wttr.in
+- **notes** — Quick notes system
+- **converter** — Unit/temp/timezone conversion
+- **timer** — Countdown timers with popup
+
+### Create Your Own Plugin
+
+```python
+# plugins/myplugin.py
+
+PLUGIN_NAME = "myplugin"
+PLUGIN_DESCRIPTION = "Does something useful"
+PLUGIN_ACTIONS = ["action1", "action2"]
+
+def run(action: str, input_data: str) -> str:
+    if action == "action1":
+        return "Result from action1"
+    return "Unknown action"
+```
+
+Restart Kairos — auto-loaded.
+
+---
+
+## 📡 API
+
+Kairos runs a REST API on port 8765:
 
 ```bash
-# Add a daily task
-curl -X POST http://127.0.0.1:8000/jobs \
+# Send a message
+curl -X POST http://127.0.0.1:8765/chat \
   -H "Content-Type: application/json" \
-  -d '{
-    "task": "summarize my Dev folder",
-    "schedule": "every day at 08:00",
-    "job_id": "morning_summary"
-  }'
+  -d '{"message": "what is 2+2?"}'
+
+# Add a scheduled job
+curl -X POST http://127.0.0.1:8765/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"task": "summarize news", "schedule": "every day at 08:00"}'
 ```
 
-Supported schedules:
-- `"every 30 minutes"`
-- `"every 2 hours"`
-- `"every hour"`
-- `"every day at 08:00"`
-- `"every monday at 09:00"`
+Full API docs: http://127.0.0.1:8765/docs
 
 ---
 
-## 👁️ FRIDAY — Background Watcher
+## 🐧 Systemd Service (Auto-start)
 
 ```bash
-# Watch for new Python files
-curl -X POST http://127.0.0.1:8000/watches \
-  -H "Content-Type: application/json" \
-  -d '{
-    "folder": "~/Dev/Kairos",
-    "pattern": "*.py",
-    "event": "created",
-    "task": "review the new python file at {filepath}",
-    "cooldown_seconds": 30,
-    "local_only": true
-  }'
+# Create service file
+sudo nano /etc/systemd/system/kairos.service
+```
+
+```ini
+[Unit]
+Description=Kairos AI Agent API
+After=network.target
+
+[Service]
+Type=simple
+User=youruser
+WorkingDirectory=/home/youruser/Dev/Kairos
+ExecStart=/home/youruser/Dev/Kairos/venv/bin/python3 server.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable kairos
+sudo systemctl start kairos
 ```
 
 ---
 
-## 🏗️ Architecture
+## 🧠 Memory System
+
+Kairos remembers facts across sessions:
 
 ```
-You type a task
-      ↓
-  run_planner()          ← planner.py
-      ↓
-  Is it complex?
-  YES → break into subtasks (max 6)
-  NO  → go directly to agent
-      ↓
-  run_agent()            ← agent.py
-      ↓
-  LLM thinks → JSON response
-      ↓
-  run_tool()
-  ├── shell  → run_command()
-  ├── file   → read/write/etc
-  └── browser→ visit/search
-      ↓
-  Result fed back → LLM thinks again
-      ↓
-  tool: "none" → final answer shown
+/memory add facts My name is Alice
+/memory add preferences I prefer concise answers
+/memory add projects Working on a web scraper
+/memory list
+```
+
+Memory is injected into every conversation.
+
+---
+
+## ⚙️ FRIDAY — Filesystem Watcher
+
+Watch folders and auto-execute tasks:
+
+```
+/watch add ~/Downloads *.pdf created "summarize {filepath}"
+/watch list
+/watch remove <id>
 ```
 
 ---
 
-## 📄 License
+## 🎨 Tech Stack
 
-MIT License — see [LICENSE](LICENSE) for details.
+- **LLM:** Groq (llama-3.3-70b), Google Gemini 2.5 Flash
+- **Local Fallback:** Ollama (phi4-mini, mistral, gemma4)
+- **Web:** Playwright (headless Chromium), DuckDuckGo Search
+- **UI:** Rich, prompt_toolkit
+- **API:** FastAPI
+- **Scheduler:** APScheduler
+- **Watcher:** Watchdog
+- **Notifications:** Plyer
 
 ---
 
-<div align="center">
+## 📝 License
 
-*"The archer who misses his mark does not blame the target."*
+MIT
 
-**Built with Python. Runs on Linux. Thinks with AI.**
+---
 
-</div>
+## 🙏 Credits
+
+Built by [VarunKvK](https://github.com/VarunKvK)
+
+Inspired by Claude Code and the ReAct paper.
+
+---
+
+## 🐛 Known Issues
+
+- Browser tool requires X11/Wayland (no headless server support yet)
+- FRIDAY watches don't auto-restore on restart
+- Voice input planned but not implemented
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] Voice input (faster-whisper)
+- [ ] Multi-agent coordination
+- [ ] Excel/Notion integrations
+- [ ] Browser extension
+- [ ] Telegram bot
+- [ ] Web dashboard
+
+---
+
+## 💬 Contributing
+
+PRs welcome! See open issues or propose new features.
